@@ -1,0 +1,23 @@
+{
+  "name": "anuvad-setu-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "models": "node scripts/fetch-models.mjs",
+    "dev": "node --watch src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "geoip-country": "^5.0.202611110258"
+  },
+  "overrides": {
+    "ip-address": "^10.7.6"
+  }
+}
