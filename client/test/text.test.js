@@ -1,4 +1,4 @@
-﻿import test from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import { romanize } from '../src/lib/romanize.js';
 import { preprocess, postprocess, toDevanagari, fromDevanagari, asciiDigits, protectEntities, restoreEntities } from '../src/lib/indic.js';
@@ -339,4 +339,18 @@ test('downloadPolicy: low storage never auto-downloads, critical blocks, unknown
   assert.match(crit.reason, /will not work/);
   const unk = downloadPolicy({ needBytes: need, freeBytes: null });
   assert.deepEqual([unk.auto, unk.blocked, unk.level], [true, false, 'unknown']);
+});
+
+import { sourceOrder, BUNDLES as PACKS } from '../src/offline/store.js';
+
+test('sourceOrder: computers use Hugging Face first, phones use our server only', () => {
+  const b = PACKS['en-indic'];
+  const isHf = (u) => u.startsWith('https://huggingface.co/');
+  const hf = sourceOrder(b, 'tokenizer_meta.json', 'hf-first');
+  assert.equal(hf.length, 2);
+  assert.ok(isHf(hf[0]) && hf[1] === '/models/en-indic/tokenizer_meta.json');
+  assert.deepEqual(sourceOrder(b, 'tokenizer_meta.json', 'server'), ['/models/en-indic/tokenizer_meta.json']);
+  const sf = sourceOrder(b, 'tokenizer_meta.json', 'server-first');
+  assert.ok(sf[0] === '/models/en-indic/tokenizer_meta.json' && isHf(sf[1]));
+  assert.ok(hf[0].includes(b.sha), 'pinned revision');
 });

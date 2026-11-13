@@ -68,6 +68,19 @@ const INSTALLED_KEY = 'lingua.bundles.v2';
 const fileKey = (bundle, name) => `/models/${bundle}/${name}`;
 const sources = (b, name) => [fileKey(b.id, name), `https://huggingface.co/${b.repo}/resolve/${b.sha}/${name}`];
 
+/**
+ * Where to fetch a file from, in order:
+ *   'server'       our server only (phones and tablets, once the server has prepared the pack)
+ *   'hf-first'     Hugging Face, then our server as backup (computers)
+ *   'server-first' our server, then Hugging Face (phones when the server cannot prepare packs)
+ */
+export function sourceOrder(b, name, mode) {
+  const [server, hf] = sources(b, name);
+  if (mode === 'server') return [server];
+  if (mode === 'hf-first') return [hf, server];
+  return [server, hf];
+}
+
 /* ---------- installed bookkeeping (sync mirror in localStorage, truth in Cache API) ---------- */
 
 export function getInstalledBundles() {
@@ -106,10 +119,9 @@ export async function refreshInstalled() {
 
 /* ---------- download ---------- */
 
-async function downloadFile(cache, b, file, signal, onBytes, serverOnly = false) {
+async function downloadFile(cache, b, file, signal, onBytes, mode = 'server-first') {
   let lastErr;
-  const urls = serverOnly ? sources(b, file.name).slice(0, 1) : sources(b, file.name);
-  for (const url of urls) {
+  for (const url of sourceOrder(b, file.name, mode)) {
     for (let attempt = 0; attempt < 3; attempt++) {
       let got = 0;
       try {
@@ -206,8 +218,8 @@ async function prepareOnServer(id, signal, onStatus) {
  * Download every file of a bundle. Files that are already complete are skipped, so an interrupted
  * download resumes from the last finished file.
  * On phones and tablets the server is asked to prepare the pack first and the files then come from it only
- * (never straight from Hugging Face). Computers keep the original behaviour: our server first, Hugging Face as backup.
- * `onStatus(text)` reports the "preparing on the server" phase ('' when it is over).
+ * (never straight from Hugging Face). Computers download from Hugging Face directly, with our server as backup,
+ * so they put no load on the server. `onStatus(text)` reports the "preparing on the server" phase ('' when over).
  */
 export async function downloadBundle(id, onProgress, signal, { onStatus } = {}) {
   const b = BUNDLES[id];
@@ -227,12 +239,15 @@ export async function downloadBundle(id, onProgress, signal, { onStatus } = {}) 
     ),
   ).catch(() => {});
   const cache = await caches.open(CACHE);
-  let serverOnly = false;
-  if (prefersServerOnly() && !(await isComplete(cache, b))) {
-    try {
-      serverOnly = await prepareOnServer(id, signal, onStatus);
-    } finally {
-      onStatus?.('');
+  let mode = 'hf-first'; // computers
+  if (prefersServerOnly()) {
+    mode = 'server-first'; // phones / tablets, unless the server confirms it has the pack below
+    if (!(await isComplete(cache, b))) {
+      try {
+        if (await prepareOnServer(id, signal, onStatus)) mode = 'server';
+      } finally {
+        onStatus?.('');
+      }
     }
   }
   let loaded = 0;
@@ -265,7 +280,7 @@ export async function downloadBundle(id, onProgress, signal, { onStatus } = {}) 
   const stop = () => inner.abort();
   signal?.addEventListener('abort', stop, { once: true });
   const worker = async () => {
-    while (todo.length && !inner.signal.aborted) await downloadFile(cache, b, todo.shift(), inner.signal, bump, serverOnly);
+    while (todo.length && !inner.signal.aborted) await downloadFile(cache, b, todo.shift(), inner.signal, bump, mode);
   };
   try {
     await Promise.all(

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { bundleBytes, countryFromLocale, downloadPolicy, regionForCountry } from '../lib/region.js';
-import { downloadBundle, estimateStorage, refreshInstalled } from '../offline/store.js';
+import { downloadBundle, estimateStorage, getInstalledBundles, refreshInstalled } from '../offline/store.js';
 
 const FLAG = 'anuvadsetu.firstrun.v1';
 /** True when we must not offer anything again. 'done' is re-checked against the real cache (browsers can evict it). */
@@ -38,8 +38,9 @@ async function detectCountry() {
 }
 
 /**
- * First visit only: work out the visitor's region, then either start downloading that region's packs
- * (when it is safe: enough storage, not Data Saver / mobile data / slow network) or offer them.
+ * First visit only: work out the visitor's region, then OFFER that region's packs. Nothing is ever downloaded
+ * without the user choosing to (571 MB is their decision; online translation works without it).
+ * Computers get one button for everything; phones and tablets (`choose`) pick which pack(s) to download.
  *
  * phase: idle | offer | downloading | done | error | blocked
  */
@@ -51,6 +52,7 @@ export function useFirstRunPacks({ online, onInstalled }) {
 
   const start = useCallback(
     async (region, missing) => {
+      missingRef.current = missing; // "Retry" repeats the same choice
       const need = bundleBytes(missing);
       const aborter = new AbortController();
       ctl.current = aborter;
@@ -68,8 +70,9 @@ export function useFirstRunPacks({ online, onInstalled }) {
           );
           doneBytes += size;
         }
-        setFlag('done');
-        setState((s) => ({ ...s, phase: 'done', progress: 1 }));
+        const all = region.bundles.every((id) => getInstalledBundles().has(id));
+        setFlag(all ? 'done' : 'chosen'); // 'chosen': they picked only some packs, so do not offer the rest again
+        setState((s) => ({ ...s, phase: 'done', progress: 1, partial: !all }));
         onInstalled?.();
       } catch (err) {
         if (aborter.signal.aborted) setState((s) => ({ ...s, phase: 'offer', reason: 'Download paused.' }));
@@ -99,25 +102,28 @@ export function useFirstRunPacks({ online, onInstalled }) {
       const needBytes = bundleBytes(missing);
       const storage = await estimateStorage();
       const c = navigator.connection || {};
+      const coarse = !!window.matchMedia?.('(pointer: coarse)').matches; // phone / tablet
       const policy = downloadPolicy({
         saveData: c.saveData,
         type: c.type,
         effectiveType: c.effectiveType,
-        coarsePointer: window.matchMedia?.('(pointer: coarse)').matches,
+        coarsePointer: coarse,
         freeBytes: storage ? storage.quota - storage.usage : null,
         needBytes,
       });
       // Not flagged when blocked: someone who frees up space is offered the packs again on the next visit.
       if (policy.blocked) {
         setState({ phase: 'blocked', region, progress: 0, reason: policy.reason, needBytes, error: '', level: policy.level });
-      } else if (policy.auto) start(region, missing);
-      else setState({ phase: 'offer', region, progress: 0, reason: policy.reason, needBytes, error: '', level: policy.level });
+      } else {
+        setState({ phase: 'offer', region, progress: 0, reason: policy.reason, needBytes, error: '', level: policy.level, choose: coarse, missing });
+      }
     })();
   }, [online, start]);
 
   return {
     ...state,
-    accept: () => start(state.region, missingRef.current),
+    // accept() = every missing pack; accept(['en-indic']) = just those. (An onClick event is not an array.)
+    accept: (ids) => start(state.region, Array.isArray(ids) ? ids : missingRef.current),
     cancel: () => ctl.current?.abort(),
     dismiss: () => {
       ctl.current?.abort();

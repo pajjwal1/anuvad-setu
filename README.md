@@ -64,7 +64,7 @@ fetched from Hugging Face by the server, once, when the first phone or tablet as
 (`POST /api/models/:id/prepare`, progress at `GET /api/models/:id`). After that everyone downloads it from your server.
 - **Phones and tablets** (touch as the main input) download from your server only, never directly from Hugging Face.
   The app shows "Preparing the language pack on our server" while the server fetches it the first time.
-- **Computers** try your server first and fall back to Hugging Face, as before.
+- **Computers** download from Hugging Face directly and use your server only as a backup, so they put no load on it.
 - Only the known pack names are accepted, files are size-checked and written under a temporary name first, so a
   half-downloaded file is never served. A new country needs its pack added in `server/src/models.js` and
   `client/src/offline/store.js` (a test checks they match).

@@ -1,8 +1,10 @@
+import { BUNDLES } from '../offline/store.js';
+
 const mb = (n) => `${Math.round(n / 1e6)} MB`;
 
 /** First-visit banner: offers / shows progress of the region's offline packs. */
 export default function FirstRunBanner({ run, onOpenPacks }) {
-  const { phase, region, progress, reason, needBytes, error, level, note } = run;
+  const { phase, region, progress, reason, needBytes, error, level, note, choose, missing, partial } = run;
   if (phase === 'idle') return null;
   const pct = Math.round(progress * 100);
   const warn = phase === 'blocked' || level === 'low';
@@ -12,11 +14,27 @@ export default function FirstRunBanner({ run, onOpenPacks }) {
         <>
           <span>
             {level === 'low' ? '⚠ ' : ''}
-            Use Anuvad Setu without internet? Download {region.languages} ({mb(needBytes)}, one time). {reason}
+            {choose && missing?.length > 1
+              ? 'Use Anuvad Setu without internet? Choose what to download (one time, kept on this device). '
+              : `Use Anuvad Setu without internet? Download ${region.languages} (${mb(needBytes)}, one time). `}
+            {reason}
           </span>
-          <button className="btn small-btn" onClick={run.accept}>
-            {level === 'low' ? 'Download anyway' : 'Download'} {mb(needBytes)}
-          </button>
+          {choose && missing?.length > 1 ? (
+            <>
+              {missing.map((id) => (
+                <button key={id} className="btn small-btn" data-testid={`choose-${id}`} onClick={() => run.accept([id])}>
+                  {BUNDLES[id].label} · {mb(BUNDLES[id].size)}
+                </button>
+              ))}
+              <button className="btn small-btn" data-testid="choose-all" onClick={() => run.accept()}>
+                Both · {mb(needBytes)}
+              </button>
+            </>
+          ) : (
+            <button className="btn small-btn" onClick={() => run.accept()}>
+              {level === 'low' ? 'Download anyway' : 'Download'} {mb(needBytes)}
+            </button>
+          )}
           <button className="link" onClick={run.dismiss}>
             Not now
           </button>
@@ -38,7 +56,11 @@ export default function FirstRunBanner({ run, onOpenPacks }) {
       )}
       {phase === 'done' && (
         <>
-          <span>✓ Ready offline: {region.languages}. You can now translate without internet.</span>
+          <span>
+            {partial
+              ? '✓ Ready offline for the pack you chose. You can add the other one any time from Offline.'
+              : `✓ Ready offline: ${region.languages}. You can now translate without internet.`}
+          </span>
           <button className="link" onClick={run.close}>
             OK
           </button>
@@ -47,7 +69,7 @@ export default function FirstRunBanner({ run, onOpenPacks }) {
       {phase === 'error' && (
         <>
           <span>Offline download stopped: {error}</span>
-          <button className="link" onClick={run.accept}>
+          <button className="link" onClick={() => run.accept()}>
             Retry
           </button>
           <button className="link" onClick={onOpenPacks}>
