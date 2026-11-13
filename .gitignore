@@ -7,7 +7,6 @@ dist/
 !.env.example
 
 # large / local-only
-server/models/
 .research/
 client/.proto/
 client/public/ort/

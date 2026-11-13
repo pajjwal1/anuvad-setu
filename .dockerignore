@@ -1,7 +1,6 @@
 node_modules
 **/node_modules
 client/dist
-server/models
 .research
 client/.proto
 e2e
