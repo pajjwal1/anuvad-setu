@@ -1,4 +1,4 @@
-﻿// Real-browser test of the WORLD-language packs against a running server (default http://localhost:3001):
+// Real-browser test of the WORLD-language packs against a running server (default http://localhost:3001):
 // open Offline panel -> download English->French and French->English straight from Hugging Face ->
 // confirm nothing was requested from /models -> go offline -> reload -> translate both ways on the device.
 import puppeteer from 'puppeteer-core';
@@ -15,7 +15,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const t0 = Date.now();
 const log = (m) => console.log(`[${((Date.now() - t0) / 1000).toFixed(0)}s] ${m}`);
 
-const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', `--unsafely-treat-insecure-origin-as-secure=${new URL(URL_).origin}`] });
 const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 900 });
 await page.emulateTimezone('America/New_York'); // not India: no automatic Indian download

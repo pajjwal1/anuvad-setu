@@ -81,6 +81,8 @@ for (const p of WORLD_MANIFEST) {
 
 for (const b of Object.values(BUNDLES)) b.size = b.files.reduce((n, x) => n + x.size, 0);
 
+const ORT_CACHE = 'ort-runtime'; // same name as the service worker's runtime cache for /ort/
+const ORT_FILES = ['/ort/ort-wasm-simd-threaded.mjs', '/ort/ort-wasm-simd-threaded.wasm'];
 const CACHE = 'lingua-models-v1';
 const INSTALLED_KEY = 'lingua.bundles.v2';
 
@@ -237,6 +239,29 @@ async function prepareOnServer(id, signal, onStatus) {
 }
 
 /**
+ * The WASM runtime is cached by the service worker only when first used, and not at all on a first visit
+ * (the page is not yet controlled). Store it ourselves in the cache the service worker reads ('ort-runtime',
+ * see vite.config.js) so the engine still starts offline. Does nothing when it is already stored and quietly
+ * gives up when offline.
+ */
+export async function ensureOrtCached() {
+  if (!('caches' in self)) return;
+  try {
+    const c = await caches.open(ORT_CACHE);
+    await Promise.all(
+      ORT_FILES.map(async (u) => {
+        if (await c.match(u)) return;
+        const r = await fetch(u);
+        if (!r.ok) throw new Error(`HTTP ${r.status} for ${u}`);
+        await c.put(u, r);
+      }),
+    );
+  } catch {
+    /* offline or blocked: nothing to do */
+  }
+}
+
+/**
  * Download every file of a bundle. Files that are already complete are skipped, so an interrupted
  * download resumes from the last finished file.
  * On phones and tablets the server is asked to prepare the pack first and the files then come from it only
@@ -253,13 +278,7 @@ export async function downloadBundle(id, onProgress, signal, { onStatus } = {}) 
         : 'This browser cannot store offline models.',
     );
   }
-  // The WASM runtime is cached by the service worker only when first used; fetch it now so the engine
-  // still starts if the user goes offline before ever translating.
-  await Promise.all(
-    ['/ort/ort-wasm-simd-threaded.mjs', '/ort/ort-wasm-simd-threaded.wasm'].map((u) =>
-      fetch(u).then((r) => r.arrayBuffer()),
-    ),
-  ).catch(() => {});
+  await ensureOrtCached();
   const cache = await caches.open(CACHE);
   let mode = 'hf-first'; // computers
   if (prefersServerOnly() && !b.hfOnly) {

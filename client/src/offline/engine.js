@@ -1,7 +1,7 @@
 // Main-thread client for the on-device translation worker.
 import { planOffline, bundlesNeeded } from '../lib/languages.js';
 import { segmentText, assemble } from '../lib/chunk.js';
-import { getInstalledBundles } from './store.js';
+import { getInstalledBundles, ensureOrtCached } from './store.js';
 
 let worker;
 let seq = 0;
@@ -58,6 +58,7 @@ export async function translateOffline(text, source, target, { signal, onStatus 
   if (source === target) return text;
   const steps = planFor(source, target);
   if (!steps) throw new Error(offlineHint(source, target));
+  if (navigator.onLine) await ensureOrtCached(); // repairs installs made before the runtime was stored for offline use
   const segments = segmentText(text, 200);
   const chunks = segments.filter((s) => 'chunk' in s).map((s) => s.chunk);
   const { translations } = await call({ type: 'translate', chunks, steps }, { onEvent: onStatus, signal });
