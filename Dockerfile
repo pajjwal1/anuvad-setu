@@ -27,7 +27,8 @@ COPY --from=client --chown=node:node /app/client/dist /app/client/dist
 RUN mkdir -p /app/server/models && chown node:node /app/server/models
 USER node
 EXPOSE 3001
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD wget -qO- http://127.0.0.1:3001/api/health || exit 1
+# Hosts such as Render inject their own PORT, so the check follows it.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD wget -qO- http://127.0.0.1:${PORT:-3001}/api/health || exit 1
 # Start serving immediately and fetch any missing models in the background (files with the right size are
 # skipped, so with the committed models this is a no-op; a missing pack such as indic-indic is downloaded).
 CMD ["sh", "-c", "node scripts/fetch-models.mjs & exec node src/index.js"]
