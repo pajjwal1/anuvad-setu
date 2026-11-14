@@ -50,7 +50,7 @@ export const canTranslateOffline = (source, target, installed) => source === tar
 /** Human hint for "what do I need to download to translate source->target offline". */
 export function offlineHint(source, target) {
   const need = bundlesNeeded(source, target);
-  if (!need) return 'Offline translation covers the 22 Indian languages and English.';
+  if (!need) return 'Offline translation is available for the 22 Indian languages, English and the world languages listed under menu → Offline.';
   return 'Download the offline language packs (menu → Offline) while you are online to translate this offline.';
 }
 

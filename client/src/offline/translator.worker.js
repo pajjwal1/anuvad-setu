@@ -1,9 +1,11 @@
-// Offline translation worker: ONNX Runtime Web (WASM) + IndicTrans2 int8 models from the Cache API.
-// Only one model bundle is held in memory at a time (they are ~250-360 MB each).
+// Offline translation worker: ONNX Runtime Web (WASM) + int8 models from the Cache API: IndicTrans2 for the
+// Indian languages (~250-360 MB per bundle) and OPUS-MT / Marian for the world languages (~110-135 MB per direction).
+// Only one model bundle is held in memory at a time.
 import * as ort from 'onnxruntime-web/wasm';
 import { Tokenizer } from '@huggingface/tokenizers';
 import { BUNDLES, readFile } from './store.js';
 import { createModel } from './model.js';
+import { createMarianModel } from './marian.js';
 import { preprocess, postprocess } from '../lib/indic.js';
 
 ort.env.wasm.wasmPaths = '/ort/';
@@ -12,10 +14,32 @@ ort.env.wasm.proxy = false;
 
 let current = null; // { id, model }
 
+async function loadMarian(id, report) {
+  report('Reading model files…');
+  const [cfg, tokJson, tokCfg] = await Promise.all([
+    readFile(id, 'config.json', 'json'),
+    readFile(id, 'tokenizer.json', 'json'),
+    readFile(id, 'tokenizer_config.json', 'json'),
+  ]);
+  const tok = new Tokenizer(tokJson, tokCfg);
+  const create = async (name) =>
+    ort.InferenceSession.create(await readFile(id, name), { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
+  report('Starting the encoder…');
+  const enc = await create('encoder_model_int8.onnx');
+  report('Starting the decoder…');
+  const dec = await create('decoder_model_merged_int8.onnx');
+  return createMarianModel({ Tensor: ort.Tensor, enc, dec, tok, cfg });
+}
+
 async function loadBundle(id, report) {
   if (current?.id === id) return current.model;
   current = null; // drop references so the previous sessions can be garbage collected
   if (!BUNDLES[id]) throw new Error(`Unknown model bundle ${id}`);
+  if (BUNDLES[id].kind === 'marian') {
+    const model = await loadMarian(id, report);
+    current = { id, model };
+    return model;
+  }
 
   report('Reading model files…');
   const [meta, gen, srcJson, tgtJson] = await Promise.all([
@@ -58,9 +82,15 @@ async function translate({ id, chunks, steps }, report, progress) {
     const { bundle, src, tgt } = steps[s];
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
     const model = await loadBundle(bundle, report);
+    const marian = BUNDLES[bundle].kind === 'marian';
     const out = [];
     for (let i = 0; i < texts.length; i++) {
       progress((s + i / texts.length) / steps.length);
+      if (marian) {
+        // OPUS-MT works on plain text: no Indic script mapping or entity placeholders.
+        out.push(await model.translate(texts[i], { signal }));
+        continue;
+      }
       const { text: pre, entities } = preprocess(texts[i], src);
       const raw = await model.translate(pre, src, tgt, { signal });
       out.push(postprocess(raw, tgt, entities));

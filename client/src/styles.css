@@ -364,6 +364,16 @@ textarea:focus {
   flex: none;
   min-width: 108px;
 }
+.pack-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+}
+.pack-actions .btn {
+  min-width: 190px;
+  text-align: left;
+}
 .bar {
   height: 6px;
   background: var(--border);

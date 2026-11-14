@@ -8,7 +8,7 @@ import LanguageSelect from './LanguageSelect.jsx';
  * Face-to-face mode. The screen is split in two; the top half is rotated 180° so the person opposite can
  * read and type on their side. Each half shows every message in that person's own language.
  */
-function Side({ side, lang, onLang, recents, privateMode, messages, onSend, busy, autoSpeak, flipped, online }) {
+function Side({ side, lang, onLang, recents, privateMode, messages, onSend, busy, autoSpeak, flipped }) {
   const [draft, setDraft] = useState('');
   const dictation = useDictation(
     BY_CODE[lang]?.speech || 'en-US',
@@ -21,7 +21,7 @@ function Side({ side, lang, onLang, recents, privateMode, messages, onSend, busy
     setDraft('');
     onSend(v, side);
   };
-  const voiceOk = canListen && online && !privateMode;
+  const voiceOk = canListen && !privateMode; // shown online or offline; recognition itself still needs the browser's network
   return (
     <section className={`conv-side ${flipped ? 'flipped' : ''}`} data-testid={`conv-${side}`}>
       <LanguageSelect label={`${side === 'top' ? 'Top' : 'Bottom'} person's language`} value={lang} onChange={onLang} recents={recents} deviceOnly={privateMode} />
@@ -61,7 +61,11 @@ function Side({ side, lang, onLang, recents, privateMode, messages, onSend, busy
           Send
         </button>
       </form>
-      {dictation.error && <div className="error small">{dictation.error}</div>}
+      {dictation.error && (
+        <div className="error small">
+          {dictation.error === 'Voice input: network' ? 'Voice input needs an internet connection. You can still type.' : dictation.error}
+        </div>
+      )}
     </section>
   );
 }

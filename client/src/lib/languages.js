@@ -1,3 +1,5 @@
+import { WORLD_LANGS } from '../offline/world.manifest.js';
+
 // Language catalogue, India first.
 //  code    - code sent to the API (ISO 639-1/3)
 //  flores  - IndicTrans2 language tag (on-device engine)
@@ -138,18 +140,41 @@ export const INDIAN_CODES = new Set(INDIAN_LANGUAGES.map((l) => l.code));
 export const langName = (code) => BY_CODE[code]?.name ?? code;
 export const isRtl = (code) => !!BY_CODE[code]?.rtl;
 export const isIndian = (code) => INDIAN_CODES.has(code);
-/** Languages the on-device engine can handle (22 Indian languages + English). */
-export const hasOnDevice = (code) => code === 'en' || INDIAN_CODES.has(code);
+/** World languages that have an on-device pack (each in both directions with English). Marked in the UI. */
+export const OFFLINE_WORLD_CODES = new Set(WORLD_LANGS);
+/** Languages the on-device engines can handle: 22 Indian languages + English (IndicTrans2), plus the world packs. */
+export const hasOnDevice = (code) => code === 'en' || INDIAN_CODES.has(code) || OFFLINE_WORLD_CODES.has(code);
+
+const worldPack = (from, to) => `mt-${from}-${to}`;
 
 /**
- * On-device model chain for source -> target, or null when unsupported.
- * Each step names the model bundle and the IndicTrans2 language tags.
+ * On-device model chain for source -> target, or null when unsupported / not installed.
+ * Each step names the model bundle and, for IndicTrans2, the language tags (world steps carry the plain codes).
  * Indian <-> Indian uses the direct model when installed, else pivots through English.
+ * A world language is always one pack to or from English; anything else pivots through English (two steps).
  */
 export function planOffline(source, target, installed) {
   if (!hasOnDevice(source) || !hasOnDevice(target) || source === target) return null;
-  const tag = (c) => BY_CODE[c].flores;
   const has = (b) => installed.has(b);
+  const sw = OFFLINE_WORLD_CODES.has(source);
+  const tw = OFFLINE_WORLD_CODES.has(target);
+
+  if (sw || tw) {
+    // English <-> world language: one step. Otherwise go through English: source -> en, then en -> target.
+    const hop = (from, to) => {
+      if (OFFLINE_WORLD_CODES.has(from) || OFFLINE_WORLD_CODES.has(to)) {
+        const id = worldPack(from, to);
+        return has(id) ? [{ bundle: id, src: from, tgt: to }] : null;
+      }
+      return planOffline(from, to, installed);
+    };
+    if (source === 'en' || target === 'en') return hop(source, target);
+    const first = hop(source, 'en');
+    const second = hop('en', target);
+    return first && second ? [...first, ...second] : null;
+  }
+
+  const tag = (c) => BY_CODE[c].flores;
   if (source === 'en') return has('en-indic') ? [{ bundle: 'en-indic', src: tag(source), tgt: tag(target) }] : null;
   if (target === 'en') return has('indic-en') ? [{ bundle: 'indic-en', src: tag(source), tgt: tag(target) }] : null;
   if (has('indic-indic')) return [{ bundle: 'indic-indic', src: tag(source), tgt: tag(target) }];
@@ -165,6 +190,13 @@ export function planOffline(source, target, installed) {
 /** Which bundles would make source -> target possible (for "download X to translate offline" hints). */
 export function bundlesNeeded(source, target) {
   if (!hasOnDevice(source) || !hasOnDevice(target) || source === target) return null;
+  const sw = OFFLINE_WORLD_CODES.has(source);
+  const tw = OFFLINE_WORLD_CODES.has(target);
+  if (sw || tw) {
+    const hop = (from, to) => (OFFLINE_WORLD_CODES.has(from) || OFFLINE_WORLD_CODES.has(to) ? [worldPack(from, to)] : bundlesNeeded(from, to) || []);
+    if (source === 'en' || target === 'en') return hop(source, target);
+    return [...hop(source, 'en'), ...hop('en', target)];
+  }
   if (source === 'en') return ['en-indic'];
   if (target === 'en') return ['indic-en'];
   return ['indic-indic']; // or indic-en + en-indic

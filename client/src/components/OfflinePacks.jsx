@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { BUNDLES, downloadBundle, estimateStorage, getInstalledBundles, refreshInstalled, removeBundle } from '../offline/store.js';
 import { unloadEngine } from '../offline/engine.js';
 import { REGIONS, bundleBytes, storageLevel } from '../lib/region.js';
+import { BY_CODE, WORLD_LANGUAGES, OFFLINE_WORLD_CODES } from '../lib/languages.js';
+
+const WORLD = WORLD_LANGUAGES.filter((l) => OFFLINE_WORLD_CODES.has(l.code));
 
 const fmtBytes = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.round(n / 1e6)} MB`);
 
@@ -69,6 +72,36 @@ export default function OfflinePacks({ online, onClose, onChange }) {
     await unloadEngine();
     await removeBundle(id);
     sync(getInstalledBundles());
+  };
+
+  // One button per direction of a world language (English → X, X → English).
+  const worldButton = (id, text) => {
+    const has = installed.has(id);
+    const progress = busy[id];
+    if (has) {
+      return (
+        <button className="btn ghost small-btn" onClick={() => remove(id)} aria-label={`Remove ${text}`}>
+          ✓ {text} · Remove
+        </button>
+      );
+    }
+    if (progress !== undefined) {
+      return (
+        <button className="btn ghost small-btn" onClick={() => cancel(id)} aria-label={`Cancel ${text}`}>
+          {text} {Math.round(progress * 100)}% · Cancel
+        </button>
+      );
+    }
+    return (
+      <button
+        className="btn small-btn"
+        onClick={() => install(id)}
+        disabled={!online || packLevel(id).level === 'critical'}
+        aria-label={`Download ${text}`}
+      >
+        {text} · {fmtBytes(BUNDLES[id].size)}
+      </button>
+    );
   };
 
   return (
@@ -140,6 +173,30 @@ export default function OfflinePacks({ online, onClose, onChange }) {
           If a download is interrupted, tap Download again and it continues from the last finished file. On-device quality is
           a little below the online engine and best for short, clear sentences.
         </p>
+        <h3>World languages</h3>
+        <p className="muted small">
+          Choose a language and download both directions to talk offline in both ways. Each direction is a separate download of
+          about 110 to 140 MB. Two languages other than English (for example French to German) go through English, so they
+          need both languages downloaded. These packs download straight from Hugging Face, not from our server.
+        </p>
+        <ul className="pack-list" data-testid="world-packs">
+          {WORLD.map((l) => {
+            const toId = `mt-en-${l.code}`;
+            const fromId = `mt-${l.code}-en`;
+            return (
+              <li key={l.code} className="pack" data-testid={`world-${l.code}`}>
+                <div className="pack-info">
+                  <strong>{BY_CODE[l.code].name}</strong>
+                  {[toId, fromId].map((id) => errors[id] && <span key={id} className="error small">{errors[id]}</span>)}
+                </div>
+                <div className="pack-actions">
+                  {worldButton(toId, 'English → ' + l.name)}
+                  {worldButton(fromId, l.name + ' → English')}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       </div>
     </div>
   );

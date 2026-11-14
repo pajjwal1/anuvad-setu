@@ -33,7 +33,9 @@ const fakeHf = (log = []) => async (url) => {
 };
 
 test('server and client list exactly the same packs, files, sizes and revisions', () => {
-  assert.deepEqual(Object.keys(BUNDLES).sort(), Object.keys(CLIENT_BUNDLES).sort());
+  // World-language packs (hfOnly) are downloaded from Hugging Face and are deliberately not on this server.
+  const mirrored = Object.keys(CLIENT_BUNDLES).filter((id) => !CLIENT_BUNDLES[id].hfOnly);
+  assert.deepEqual(Object.keys(BUNDLES).sort(), mirrored.sort());
   for (const [id, b] of Object.entries(BUNDLES)) {
     const c = CLIENT_BUNDLES[id];
     assert.equal(b.repo, c.repo, id);

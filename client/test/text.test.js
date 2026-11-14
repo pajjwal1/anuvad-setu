@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { romanize } from '../src/lib/romanize.js';
 import { preprocess, postprocess, toDevanagari, fromDevanagari, asciiDigits, protectEntities, restoreEntities } from '../src/lib/indic.js';
-import { planOffline, detectLanguage, INDIAN_LANGUAGES, bundlesNeeded } from '../src/lib/languages.js';
+import { planOffline, detectLanguage, INDIAN_LANGUAGES, bundlesNeeded, OFFLINE_WORLD_CODES } from '../src/lib/languages.js';
 import { segmentText, assemble } from '../src/lib/chunk.js';
 
 /* ---------------- romanization ---------------- */
@@ -122,8 +122,55 @@ test('planOffline: direct, pivot, or unavailable', () => {
   assert.deepEqual(planOffline('ta', 'hi', has('indic-indic')).map((s) => s.bundle), ['indic-indic']);
   const pivot = planOffline('ta', 'hi', has('indic-en', 'en-indic'));
   assert.deepEqual(pivot.map((s) => [s.src, s.tgt]), [['tam_Taml', 'eng_Latn'], ['eng_Latn', 'hin_Deva']]);
-  assert.equal(planOffline('fr', 'hi', has('indic-en', 'en-indic')), null);
+  assert.equal(planOffline('fr', 'hi', has('indic-en', 'en-indic')), null, 'French pivots need the French packs too');
   assert.deepEqual(bundlesNeeded('hi', 'en'), ['indic-en']);
+});
+
+test('planOffline: world languages are one pack per direction and pivot through English', () => {
+  const has = (...b) => new Set(b);
+  assert.deepEqual(planOffline('en', 'fr', has('mt-en-fr')), [{ bundle: 'mt-en-fr', src: 'en', tgt: 'fr' }]);
+  assert.deepEqual(planOffline('fr', 'en', has('mt-fr-en')), [{ bundle: 'mt-fr-en', src: 'fr', tgt: 'en' }]);
+  assert.equal(planOffline('en', 'fr', has('mt-fr-en')), null, 'the other direction does not help');
+  assert.equal(planOffline('fr', 'en', has('mt-en-fr')), null);
+  assert.deepEqual(planOffline('fr', 'de', has('mt-fr-en', 'mt-en-de')).map((s) => s.bundle), ['mt-fr-en', 'mt-en-de']);
+  assert.equal(planOffline('fr', 'de', has('mt-fr-en')), null);
+  // world <-> Indian goes through English as well, using one pack of each family
+  assert.deepEqual(planOffline('fr', 'hi', has('mt-fr-en', 'en-indic')).map((s) => s.bundle), ['mt-fr-en', 'en-indic']);
+  assert.deepEqual(planOffline('hi', 'es', has('indic-en', 'mt-en-es')).map((s) => s.bundle), ['indic-en', 'mt-en-es']);
+  assert.equal(planOffline('fr', 'hi', has('mt-fr-en')), null);
+  assert.equal(planOffline('ro', 'en', has('mt-ro-en')), null, 'languages without a pack stay online-only');
+  assert.deepEqual(bundlesNeeded('fr', 'de'), ['mt-fr-en', 'mt-en-de']);
+  assert.deepEqual(bundlesNeeded('en', 'ru'), ['mt-en-ru']);
+  assert.deepEqual(bundlesNeeded('es', 'ta'), ['mt-es-en', 'en-indic']);
+});
+
+test('world packs: every language has both directions, come from Hugging Face only and have exact file sizes', () => {
+  for (const code of OFFLINE_WORLD_CODES) {
+    for (const id of [`mt-en-${code}`, `mt-${code}-en`]) {
+      const b = PACKS[id];
+      assert.ok(b, `${id} exists`);
+      assert.equal(b.hfOnly, true);
+      assert.equal(b.kind, 'marian');
+      assert.match(b.sha, /^[0-9a-f]{40}$/, `${id} is pinned to a commit`);
+      for (const f of b.files) assert.ok(Number.isInteger(f.size) && f.size > 0, `${id}/${f.name} has a size`);
+      const names = b.files.map((f) => f.name);
+      for (const need of ['encoder_model_int8.onnx', 'decoder_model_merged_int8.onnx', 'tokenizer.json', 'tokenizer_config.json', 'config.json']) {
+        assert.ok(names.includes(need), `${id} has ${need}`);
+      }
+      // never offered from /models on our server, on any device
+      for (const mode of ['hf-first', 'server', 'server-first']) {
+        const urls = sourceOrder(b, 'config.json', mode);
+        assert.equal(urls.length, 1);
+        assert.ok(urls[0].startsWith(`https://huggingface.co/${b.repo}/resolve/${b.sha}/`), urls[0]);
+        assert.ok(!urls.some((u) => u.startsWith('/models')), 'not served from our server');
+      }
+    }
+  }
+  // the ONNX files live under onnx/ in the repository but are cached under their plain name
+  const fr = PACKS['mt-en-fr'];
+  assert.equal(sourceOrder(fr, 'encoder_model_int8.onnx', 'hf-first')[0], `https://huggingface.co/${fr.repo}/resolve/${fr.sha}/onnx/encoder_model_int8.onnx`);
+  // Indian packs keep their server mirror
+  assert.ok(sourceOrder(PACKS['en-indic'], 'tokenizer_meta.json', 'hf-first').includes('/models/en-indic/tokenizer_meta.json'));
 });
 
 test('detectLanguage works offline from the script', () => {

@@ -1,8 +1,11 @@
 // On-device model store: manifest of the IndicTrans2 bundles + download / verify / read / delete,
 // backed by the Cache API (works in both the page and the worker).
 //
-// Files are fetched from our own server first (/models/<bundle>/<file>) and fall back to the pinned
-// Hugging Face revision, so a deployment works with or without a model mirror.
+// Indian-language bundles are fetched from our own server first (/models/<bundle>/<file>) and fall back to the
+// pinned Hugging Face revision, so a deployment works with or without a model mirror.
+// World-language packs (OPUS-MT / Marian, see world.manifest.js) are NEVER on our server: they come straight
+// from their pinned Hugging Face revision.
+import { WORLD_MANIFEST } from './world.manifest.js';
 
 const f = (name, size) => ({ name, size });
 
@@ -60,13 +63,31 @@ export const BUNDLES = {
   },
 };
 
+// One bundle per world-language direction (e.g. 'mt-en-fr'). `kind: 'marian'` selects the Marian inference path;
+// `hfOnly` means the files come from Hugging Face only, never from /models on our server.
+for (const p of WORLD_MANIFEST) {
+  BUNDLES[p.id] = {
+    id: p.id,
+    kind: 'marian',
+    hfOnly: true,
+    from: p.from,
+    to: p.to,
+    label: `${p.from} → ${p.to}`,
+    repo: p.repo,
+    sha: p.sha,
+    files: p.files.map((x) => ({ ...x })),
+  };
+}
+
 for (const b of Object.values(BUNDLES)) b.size = b.files.reduce((n, x) => n + x.size, 0);
 
 const CACHE = 'lingua-models-v1';
 const INSTALLED_KEY = 'lingua.bundles.v2';
 
+// The cache key keeps the /models/<bundle>/<file> shape for every bundle, so isComplete / readFile / remove are shared.
 const fileKey = (bundle, name) => `/models/${bundle}/${name}`;
-const sources = (b, name) => [fileKey(b.id, name), `https://huggingface.co/${b.repo}/resolve/${b.sha}/${name}`];
+const hfFile = (b, name) => b.files.find((x) => x.name === name)?.path ?? name; // world packs keep files in onnx/
+const sources = (b, name) => [fileKey(b.id, name), `https://huggingface.co/${b.repo}/resolve/${b.sha}/${hfFile(b, name)}`];
 
 /**
  * Where to fetch a file from, in order:
@@ -76,6 +97,7 @@ const sources = (b, name) => [fileKey(b.id, name), `https://huggingface.co/${b.r
  */
 export function sourceOrder(b, name, mode) {
   const [server, hf] = sources(b, name);
+  if (b.hfOnly) return [hf]; // world packs: Hugging Face only, whatever the device
   if (mode === 'server') return [server];
   if (mode === 'hf-first') return [hf, server];
   return [server, hf];
@@ -240,7 +262,7 @@ export async function downloadBundle(id, onProgress, signal, { onStatus } = {}) 
   ).catch(() => {});
   const cache = await caches.open(CACHE);
   let mode = 'hf-first'; // computers
-  if (prefersServerOnly()) {
+  if (prefersServerOnly() && !b.hfOnly) {
     mode = 'server-first'; // phones / tablets, unless the server confirms it has the pack below
     if (!(await isComplete(cache, b))) {
       try {

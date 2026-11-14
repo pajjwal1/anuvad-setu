@@ -6,7 +6,7 @@ import Phrasebook from './components/Phrasebook.jsx';
 import Conversation from './components/Conversation.jsx';
 import FirstRunBanner from './components/FirstRunBanner.jsx';
 import { useFirstRunPacks } from './hooks/useFirstRunPacks.js';
-import { BY_CODE, detectLanguage, isRtl, langName } from './lib/languages.js';
+import { BY_CODE, OFFLINE_WORLD_CODES, detectLanguage, isRtl, langName } from './lib/languages.js';
 import { romanize } from './lib/romanize.js';
 import { translate } from './lib/translate.js';
 import { getInstalledBundles, refreshInstalled } from './offline/store.js';
@@ -66,8 +66,8 @@ export default function App() {
     setPrivateSession(next); // turning it off erases everything kept for the private session
     if (next) {
       const fix = {};
-      if (BY_CODE[source]?.group === 'world') fix.source = 'auto';
-      if (BY_CODE[target]?.group === 'world') fix.target = 'hi';
+      if (BY_CODE[source]?.group === 'world' && !OFFLINE_WORLD_CODES.has(source)) fix.source = 'auto';
+      if (BY_CODE[target]?.group === 'world' && !OFFLINE_WORLD_CODES.has(target)) fix.target = 'hi';
       update({ privateMode: true, ...fix });
     } else {
       // Back to the normal data; private-session language "recents" are dropped with the rest.
